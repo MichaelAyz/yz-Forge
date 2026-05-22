@@ -2,7 +2,7 @@ import os
 import yaml
 import asyncio
 import secrets
-from passlib.context import CryptContext
+import bcrypt
 import aiosqlite
 from fastapi import HTTPException, Security, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -14,7 +14,6 @@ DB_PATH = CONFIG["registry"]["db_path"]
 # If running locally from root, paths should work. If in docker, DB_PATH is internal.
 TOKENS_TABLE = CONFIG["auth"].get("tokens_table", "tokens")
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 security = HTTPBearer()
 
 async def init_db():
@@ -35,7 +34,7 @@ async def create_token(publisher: str):
     
     # Generate a secure random token
     raw_token = f"forge_{secrets.token_urlsafe(32)}"
-    token_hash = pwd_context.hash(raw_token)
+    token_hash = bcrypt.hashpw(raw_token.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
     
     async with aiosqlite.connect(DB_PATH) as db:
         try:
@@ -59,7 +58,7 @@ async def validate_token(credentials: HTTPAuthorizationCredentials = Security(se
         async with db.execute(f"SELECT publisher, token_hash FROM {TOKENS_TABLE}") as cursor:
             async for row in cursor:
                 publisher, token_hash = row
-                if pwd_context.verify(token, token_hash):
+                if bcrypt.checkpw(token.encode('utf-8'), token_hash.encode('utf-8')):
                     return publisher
                     
     raise HTTPException(status_code=401, detail="Invalid token")

@@ -35,6 +35,7 @@ services:
       - CONFIG_PATH=/app/config.yaml
       - FORGE_INTERNAL_TOKEN=test-token
       - HOST_DATA_PATH=${PWD}/data
+      - SLACK_WEBHOOK_URL=${SLACK_WEBHOOK_URL}
     depends_on:
       - mock-registry
       - registry

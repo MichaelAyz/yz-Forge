@@ -103,7 +103,11 @@ async def get_logs(run_id: str, follow: bool = False):
     get_run_or_404(run_id)
 
     async def event_generator():
-        async for line in stream_logs(run_id, follow):
+        # Only active if status is queued or running
+        def is_active():
+            return runs.get(run_id, {}).get("status") in ["queued", "running"]
+
+        async for line in stream_logs(run_id, follow, is_active_fn=is_active):
             # SSE format requires "data: " prefix and double newline
             yield f"data: {line}\n\n"
 

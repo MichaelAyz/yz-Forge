@@ -5,3 +5,4 @@ __pycache__/
 .env
 *.db
 .DS_Store
+T7.md

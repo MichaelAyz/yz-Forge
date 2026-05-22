@@ -35,7 +35,7 @@ if not token:
 # Ensure a test pipeline exists
 if not os.path.exists("dummy.yaml"):
     with open("dummy.yaml", "w") as f:
-        f.write("name: test\njobs:\n  test:\n    runtime: alpine\n    steps:\n      - {name: t, run: echo 1}")
+        f.write("name: test\nversion: 1.0.0\njobs:\n  test:\n    runtime: alpine:3.18\n    steps:\n      - {name: t, run: echo 1}")
 
 print("--- Testing unauthenticated POST /runs ---")
 resp = requests.post("http://localhost:8000/runs", files={"pipeline": open("dummy.yaml", "rb")})

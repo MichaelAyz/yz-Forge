@@ -10,9 +10,12 @@ import asyncio
 import hashlib
 import httpx
 import docker
+import time
 from datetime import datetime
 
 from engine.logs import write_log_line
+from engine.alerts import alert_pipeline_event, alert_integrity_failure, alert_resolution_failure
+
 
 # Now read from config
 REGISTRY_URL = CONFIG["engine"]["registry_url"]
@@ -35,9 +38,11 @@ async def execute_pipeline(run_id: str, runs: dict):
     """
     run = runs[run_id]
     pipeline = run["pipeline"]
+    start_time = time.time()
 
     await _log(run_id, "system", f"Pipeline '{pipeline['name']}' started")
     run["status"] = "running"
+    asyncio.create_task(alert_pipeline_event(pipeline["name"], run_id, "running"))
 
     # ── Step 1: Resolve dependencies ──────────────────────────────
     deps = pipeline.get("dependencies", [])
@@ -50,70 +55,86 @@ async def execute_pipeline(run_id: str, runs: dict):
         except ConflictError as e:
             await _log(run_id, "system", f"Dependency conflict: {e}")
             run["status"] = "conflict_failure"
+            asyncio.create_task(alert_resolution_failure(pipeline["name"], f"Dependency conflict: {e}"))
             return
         except Exception as e:
             await _log(run_id, "system", f"Resolution failed: {e}")
             run["status"] = "failed"
+            asyncio.create_task(alert_resolution_failure(pipeline["name"], f"Resolution failed: {e}"))
             return
     else:
         run["lockfile"] = {"packages": []}
 
-    # ── Step 2: Download and verify dependencies ───────────────────
-    # Engine writes to its internal path
-    workspace = os.path.join(RUNS_PATH, run_id)
-    deps_dir = os.path.join(workspace, "deps")
-    os.makedirs(deps_dir, exist_ok=True)
+    try:
+        # ── Step 2: Download and verify dependencies ───────────────────
+        # Engine writes to its internal path
+        workspace = os.path.join(RUNS_PATH, run_id)
+        deps_dir = os.path.join(workspace, "deps")
+        os.makedirs(deps_dir, exist_ok=True)
 
-    for pkg in run["lockfile"].get("packages", []):
-        await _log(run_id, "system", f"Pulling {pkg['name']}@{pkg['version']}")
-        try:
-            await pull_and_verify(pkg, deps_dir, run_id)
-        except IntegrityError as e:
-            await _log(run_id, "system", f"INTEGRITY FAILURE: {e}")
-            run["status"] = "integrity_failure"
-            return
+        for pkg in run["lockfile"].get("packages", []):
+            await _log(run_id, "system", f"Pulling {pkg['name']}@{pkg['version']}")
+            try:
+                await pull_and_verify(pkg, deps_dir, run_id)
+            except IntegrityError as e:
+                await _log(run_id, "system", f"INTEGRITY FAILURE: {e}")
+                run["status"] = "integrity_failure"
+                asyncio.create_task(alert_integrity_failure(run_id, pkg["name"], pkg["version"], e.expected, e.actual))
+                return
 
-    # ── Step 3: Execute job groups in order ────────────────────────
-    # groups is a list of lists e.g. [["build"], ["test", "lint"], ["deploy"]]
-    # Jobs in the same group run in parallel
-    for group in run["groups"]:
-        await _log(run_id, "system", f"Starting jobs: {group}")
+        # ── Step 3: Execute job groups in order ────────────────────────
+        # groups is a list of lists e.g. [["build"], ["test", "lint"], ["deploy"]]
+        # Jobs in the same group run in parallel
+        for group in run["groups"]:
+            await _log(run_id, "system", f"Starting jobs: {group}")
 
-        # Run all jobs in this group at the same time
-        tasks = [
-            run_job(run_id, job_name, pipeline["jobs"][job_name], workspace, runs)
-            for job_name in group
-        ]
-        results = await asyncio.gather(*tasks, return_exceptions=True)
+            # Run all jobs in this group at the same time
+            tasks = [
+                run_job(run_id, job_name, pipeline["jobs"][job_name], workspace, runs)
+                for job_name in group
+            ]
+            results = await asyncio.gather(*tasks, return_exceptions=True)
 
-        # Check if any job in this group failed
-        group_failed = False
-        for job_name, result in zip(group, results):
-            if isinstance(result, Exception) or run["jobs"][job_name]["status"] == "failed":
-                group_failed = True
-                await _log(run_id, "system", f"Job '{job_name}' failed")
+            # Check if any job in this group failed
+            group_failed = False
+            for job_name, result in zip(group, results):
+                if isinstance(result, Exception) or run["jobs"][job_name]["status"] == "failed":
+                    group_failed = True
+                    await _log(run_id, "system", f"Job '{job_name}' failed")
 
-        # If any job failed, mark remaining jobs as skipped
-        if group_failed:
-            remaining_jobs = _get_remaining_jobs(run, group)
-            for job_name in remaining_jobs:
-                run["jobs"][job_name]["status"] = "skipped"
-                await _log(run_id, "system", f"Job '{job_name}' skipped due to upstream failure")
-            run["status"] = "failed"
-            return
+            # If any job failed, mark remaining jobs as skipped
+            if group_failed:
+                remaining_jobs = _get_remaining_jobs(run, group)
+                for job_name in remaining_jobs:
+                    run["jobs"][job_name]["status"] = "skipped"
+                    await _log(run_id, "system", f"Job '{job_name}' skipped due to upstream failure")
+                run["status"] = "failed"
+                duration = time.time() - start_time
+                failing_job = next((j for j, info in run["jobs"].items() if info["status"] == "failed"), None)
+                asyncio.create_task(alert_pipeline_event(pipeline["name"], run_id, "failed", duration_seconds=duration, failing_job=failing_job))
+                return
 
-    # ── Step 4: Publish artifacts ──────────────────────────────────
-    artifacts = pipeline.get("artifacts", [])
-    for artifact in artifacts:
-        artifact_path = os.path.join(workspace, artifact["path"].lstrip("./"))
-        if os.path.exists(artifact_path):
-            await _log(run_id, "system", f"Publishing {artifact['name']}@{artifact['version']}")
-            await publish_artifact(artifact, artifact_path, run_id)
-        else:
-            await _log(run_id, "system", f"Artifact path not found: {artifact_path}")
+        # ── Step 4: Publish artifacts ──────────────────────────────────
+        artifacts = pipeline.get("artifacts", [])
+        for artifact in artifacts:
+            artifact_path = os.path.join(workspace, artifact["path"].lstrip("./"))
+            if os.path.exists(artifact_path):
+                await _log(run_id, "system", f"Publishing {artifact['name']}@{artifact['version']}")
+                await publish_artifact(artifact, artifact_path, run_id)
+            else:
+                await _log(run_id, "system", f"Artifact path not found: {artifact_path}")
 
-    run["status"] = "succeeded"
-    await _log(run_id, "system", f"Pipeline '{pipeline['name']}' succeeded")
+        run["status"] = "succeeded"
+        await _log(run_id, "system", f"Pipeline '{pipeline['name']}' succeeded")
+        duration = time.time() - start_time
+        asyncio.create_task(alert_pipeline_event(pipeline["name"], run_id, "succeeded", duration_seconds=duration))
+
+    except Exception as e:
+        await _log(run_id, "system", f"Pipeline run encountered unexpected error: {e}")
+        run["status"] = "failed"
+        duration = time.time() - start_time
+        asyncio.create_task(alert_pipeline_event(pipeline["name"], run_id, "failed", duration_seconds=duration, failing_job=str(e)))
+
 
 
 # ─────────────────────────────────────────────
@@ -325,7 +346,9 @@ async def pull_and_verify(pkg: dict, deps_dir: str, run_id: str):
         raise IntegrityError(
             f"{name}@{version} — "
             f"expected sha256:{expected_sha} "
-            f"but got sha256:{actual_sha}"
+            f"but got sha256:{actual_sha}",
+            expected=expected_sha,
+            actual=actual_sha
         )
 
     # Save to deps directory
@@ -400,7 +423,10 @@ def _get_remaining_jobs(run: dict, completed_group: list) -> list:
 
 class IntegrityError(Exception):
     """Raised when a downloaded artifact's checksum doesn't match."""
-    pass
+    def __init__(self, message, expected=None, actual=None):
+        super().__init__(message)
+        self.expected = expected
+        self.actual = actual
 
 
 class ConflictError(Exception):
