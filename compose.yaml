@@ -1,5 +1,19 @@
 services:
+  registry:
+    restart: always
+    build:
+      context: .
+      dockerfile: registry/Dockerfile
+    ports:
+      - "8002:8001"
+    volumes:
+      - ./data:/app/data
+      - ./config.yaml:/app/config.yaml
+    environment:
+      - CONFIG_PATH=/app/config.yaml
+
   mock-registry:
+    restart: always
     build:
       context: .
       dockerfile: mock_registry/Dockerfile
@@ -7,6 +21,7 @@ services:
       - "8001:8001"
 
   engine:
+    restart: always
     build:
       context: .
       dockerfile: engine/Dockerfile
@@ -22,3 +37,4 @@ services:
       - HOST_DATA_PATH=${PWD}/data
     depends_on:
       - mock-registry
+      - registry

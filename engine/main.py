@@ -8,6 +8,7 @@ from engine.parser import parse_pipeline
 from engine.scheduler import build_dag, detect_cycles, get_parallel_groups
 from engine.runner import execute_pipeline
 from engine.logs import stream_logs
+from registry.auth import validate_token
 
 app = FastAPI()
 
@@ -28,7 +29,7 @@ def health():
 
 
 @app.post("/runs", status_code=201)
-async def create_run(pipeline: UploadFile = File(...)):
+async def create_run(pipeline: UploadFile = File(...), publisher: str = Depends(validate_token)):
     """
     Accepts a pipeline YAML file.
     Validates it, builds the DAG, checks for cycles,

@@ -11,6 +11,7 @@ COPY requirements.txt .
 RUN pip install -r requirements.txt
 
 COPY engine/ ./engine/
+COPY registry/auth.py ./registry/auth.py
 COPY config.yaml .
 
 # Create directories the engine needs
