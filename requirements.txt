@@ -1,0 +1,11 @@
+fastapi
+uvicorn
+pyyaml
+httpx
+python-multipart
+aiosqlite
+aiofiles
+click
+requests
+passlib[bcrypt]
+packaging
