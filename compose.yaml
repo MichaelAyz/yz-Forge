@@ -1,15 +1,10 @@
 services:
-  registry:
+  mock-registry:
     build:
       context: .
-      dockerfile: registry/Dockerfile
+      dockerfile: mock_registry/Dockerfile
     ports:
       - "8001:8001"
-    volumes:
-      - ./data:/app/data
-      - ./config.yaml:/app/config.yaml
-    environment:
-      - CONFIG_PATH=/app/config.yaml
 
   engine:
     build:
@@ -23,5 +18,7 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
     environment:
       - CONFIG_PATH=/app/config.yaml
+      - FORGE_INTERNAL_TOKEN=test-token
+      - HOST_DATA_PATH=${PWD}/data
     depends_on:
-      - registry
+      - mock-registry

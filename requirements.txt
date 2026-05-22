@@ -9,3 +9,4 @@ click
 requests
 passlib[bcrypt]
 packaging
+docker
