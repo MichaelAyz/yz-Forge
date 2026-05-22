@@ -1,0 +1,30 @@
+name: parallel-test
+version: 1.0.0
+jobs:
+  job-a:
+    runtime: alpine:3.18
+    resources:
+      cpu: 0.5
+      memory: 256Mi
+    steps:
+      - name: run-a
+        run: "echo 'Job A running' && sleep 2 && echo 'Job A done'"
+
+  job-b:
+    runtime: alpine:3.18
+    resources:
+      cpu: 0.5
+      memory: 256Mi
+    steps:
+      - name: run-b
+        run: "echo 'Job B running' && sleep 2 && echo 'Job B done'"
+
+  job-c:
+    runtime: alpine:3.18
+    resources:
+      cpu: 0.5
+      memory: 256Mi
+    needs: [job-a, job-b]
+    steps:
+      - name: run-c
+        run: "echo 'Job C running after A and B'"

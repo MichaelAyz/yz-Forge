@@ -1,0 +1,9 @@
+name: bad-test
+version: 1.0.0
+unknown_field: this_should_error
+jobs:
+  build:
+    runtime: alpine:3.18
+    steps:
+      - name: step
+        run: "echo hello"
