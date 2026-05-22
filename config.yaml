@@ -14,7 +14,7 @@ engine:
   registry_url: http://mock-registry:8001
 
 slack:
-  webhook_url: ""             # fill in before grading
+  webhook_url: ""
 
 auth:
-  tokens_table: tokens        # table name in SQLite
+  tokens_table: tokens
