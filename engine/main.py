@@ -25,6 +25,32 @@ db_path = config.get("registry", {}).get("db_path", "./data/forge.db")
 os.makedirs(os.path.dirname(db_path) if os.path.dirname(db_path) else ".", exist_ok=True)
 init_auth(db_path)
 
+def _seed_internal_token():
+    """
+    Auto-seeds the internal engine token on every startup.
+    This ensures the engine can always publish artifacts to the registry
+    even after a fresh docker compose up wipes the database.
+    """
+    import hashlib
+    import sqlite3
+    from datetime import datetime, timezone
+
+    internal_token = os.environ.get("FORGE_INTERNAL_TOKEN", "internal-token")
+    token_hash = hashlib.sha256(internal_token.encode()).hexdigest()
+    created_at = datetime.now(timezone.utc).isoformat()
+
+    try:
+        with sqlite3.connect(db_path) as conn:
+            conn.execute(
+                "INSERT OR IGNORE INTO tokens (label, token_hash, created_at) VALUES (?, ?, ?)",
+                ("internal-engine", token_hash, created_at),
+            )
+            conn.commit()
+    except Exception as e:
+        print(f"Warning: could not seed internal token: {e}")
+
+_seed_internal_token()
+
 app = FastAPI()
 
 # In-memory run store
