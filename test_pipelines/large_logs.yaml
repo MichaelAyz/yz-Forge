@@ -1,0 +1,11 @@
+name: large-logs-test
+version: 1.0.0
+jobs:
+  build:
+    runtime: alpine:3.18
+    resources:
+      cpu: 0.5
+      memory: 256Mi
+    steps:
+      - name: generate-logs
+        run: "for i in $(seq 1 50000); do echo 'Log line number: '$i; done"

@@ -1,0 +1,11 @@
+name: escape-fs-test
+version: 1.0.0
+jobs:
+  build:
+    runtime: alpine:3.18
+    resources:
+      cpu: 0.5
+      memory: 256Mi
+    steps:
+      - name: try-escape
+        run: "cat /etc/hostname 2>/dev/null && echo 'ESCAPED' || echo 'BLOCKED'"

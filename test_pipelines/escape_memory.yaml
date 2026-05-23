@@ -1,0 +1,11 @@
+name: escape-memory-test
+version: 1.0.0
+jobs:
+  build:
+    runtime: alpine:3.18
+    resources:
+      cpu: 0.5
+      memory: 64Mi
+    steps:
+      - name: oom
+        run: "dd if=/dev/zero of=/dev/null bs=128M count=1"
