@@ -1,20 +1,31 @@
 #!/bin/bash
 
-TOKEN="forge-bf4f13a0868f74da819385e7081c7c06eab20e66636d8c22a3a736dfbfd63ee2"
+# Usage: ./test_full.sh <token>
+# Example: ./test_full.sh forge-abc123...
+# If no token provided, uses FORGE_TOKEN environment variable
+
+TOKEN="${1:-$FORGE_TOKEN}"
+
+if [ -z "$TOKEN" ]; then
+  echo "❌ No token provided."
+  echo "Usage: ./test_full.sh <token>"
+  echo "   or: export FORGE_TOKEN=<token> && ./test_full.sh"
+  exit 1
+fi
 
 echo "════════════════════════════════════════"
 echo "  FORGE — FULL CAPABILITY TEST SUITE"
 echo "════════════════════════════════════════"
 
 BASE_ENGINE="http://localhost:8000"
-BASE_REGISTRY="http://localhost:8002"
+BASE_REGISTRY="http://localhost:8001"
 
 wait_for_run() {
     local run_id=$1
     local max_wait=${2:-60}
     local waited=0
     while [ $waited -lt $max_wait ]; do
-        status=$(curl -s "$BASE_ENGINE/runs/$run_id" | python -c "import sys,json; print(json.load(sys.stdin)['status'])" 2>/dev/null)
+        status=$(curl -s "$BASE_ENGINE/runs/$run_id" | python3 -c "import sys,json; print(json.load(sys.stdin)['status'])" 2>/dev/null)
         if [ "$status" != "queued" ] && [ "$status" != "running" ]; then
             echo $status
             return
@@ -31,7 +42,7 @@ r=$(curl -s -X POST $BASE_ENGINE/runs \
   -H "Authorization: Bearer $TOKEN" \
   -F "pipeline=@test_pipelines/publish_lib_core.yaml")
 echo "Response: $r"
-id=$(echo $r | python -c "import sys,json; print(json.load(sys.stdin)['run_id'])" 2>/dev/null)
+id=$(echo $r | python3 -c "import sys,json; print(json.load(sys.stdin)['run_id'])" 2>/dev/null)
 if [ -n "$id" ]; then
   status=$(wait_for_run $id 60)
   [ "$status" = "succeeded" ] && echo "✅ PASSED" || echo "❌ FAILED — $status"
@@ -45,7 +56,7 @@ r=$(curl -s -X POST $BASE_ENGINE/runs \
   -H "Authorization: Bearer $TOKEN" \
   -F "pipeline=@test_pipelines/publish_lib_http.yaml")
 echo "Response: $r"
-id=$(echo $r | python -c "import sys,json; print(json.load(sys.stdin)['run_id'])" 2>/dev/null)
+id=$(echo $r | python3 -c "import sys,json; print(json.load(sys.stdin)['run_id'])" 2>/dev/null)
 if [ -n "$id" ]; then
   status=$(wait_for_run $id 60)
   [ "$status" = "succeeded" ] && echo "✅ PASSED" || echo "❌ FAILED — $status"
@@ -59,7 +70,7 @@ r=$(curl -s -X POST $BASE_ENGINE/runs \
   -H "Authorization: Bearer $TOKEN" \
   -F "pipeline=@test_pipelines/publish_service_api.yaml")
 echo "Response: $r"
-id=$(echo $r | python -c "import sys,json; print(json.load(sys.stdin)['run_id'])" 2>/dev/null)
+id=$(echo $r | python3 -c "import sys,json; print(json.load(sys.stdin)['run_id'])" 2>/dev/null)
 if [ -n "$id" ]; then
   status=$(wait_for_run $id 60)
   [ "$status" = "succeeded" ] && echo "✅ PASSED" || echo "❌ FAILED — $status"
@@ -93,7 +104,7 @@ r=$(curl -s -X POST $BASE_ENGINE/runs \
   -H "Authorization: Bearer $TOKEN" \
   -F "pipeline=@test_pipelines/conflict.yaml")
 echo "Response: $r"
-id=$(echo $r | python -c "import sys,json; print(json.load(sys.stdin)['run_id'])" 2>/dev/null)
+id=$(echo $r | python3 -c "import sys,json; print(json.load(sys.stdin)['run_id'])" 2>/dev/null)
 if [ -n "$id" ]; then
   status=$(wait_for_run $id 30)
   [ "$status" = "conflict_failure" ] && echo "✅ PASSED" || echo "❌ FAILED — $status"
@@ -106,7 +117,7 @@ echo "[ CAP 7a ] Filesystem escape → contained"
 r=$(curl -s -X POST $BASE_ENGINE/runs \
   -H "Authorization: Bearer $TOKEN" \
   -F "pipeline=@test_pipelines/escape_fs.yaml")
-id=$(echo $r | python -c "import sys,json; print(json.load(sys.stdin)['run_id'])")
+id=$(echo $r | python3 -c "import sys,json; print(json.load(sys.stdin)['run_id'])")
 wait_for_run $id 30 > /dev/null
 logs=$(curl -s $BASE_ENGINE/runs/$id/logs)
 echo "$logs" | grep -q "BLOCKED" && echo "✅ PASSED" || echo "❌ FAILED — check logs manually"
@@ -116,7 +127,7 @@ echo "[ CAP 7b ] Memory exhaustion → contained"
 r=$(curl -s -X POST $BASE_ENGINE/runs \
   -H "Authorization: Bearer $TOKEN" \
   -F "pipeline=@test_pipelines/escape_memory.yaml")
-id=$(echo $r | python -c "import sys,json; print(json.load(sys.stdin)['run_id'])")
+id=$(echo $r | python3 -c "import sys,json; print(json.load(sys.stdin)['run_id'])")
 status=$(wait_for_run $id 30)
 [ "$status" = "failed" ] && echo "✅ PASSED — OOM killed container" || echo "❌ FAILED — $status"
 
@@ -125,7 +136,7 @@ echo "[ CAP 7c ] Network egress → contained"
 r=$(curl -s -X POST $BASE_ENGINE/runs \
   -H "Authorization: Bearer $TOKEN" \
   -F "pipeline=@test_pipelines/escape_network.yaml")
-id=$(echo $r | python -c "import sys,json; print(json.load(sys.stdin)['run_id'])")
+id=$(echo $r | python3 -c "import sys,json; print(json.load(sys.stdin)['run_id'])")
 wait_for_run $id 30 > /dev/null
 logs=$(curl -s $BASE_ENGINE/runs/$id/logs)
 echo "$logs" | grep -q "BLOCKED" && echo "✅ PASSED" || echo "❌ FAILED — network may not be blocked"
@@ -135,9 +146,9 @@ echo "[ CAP 8 ] 50MB log streaming"
 r=$(curl -s -X POST $BASE_ENGINE/runs \
   -H "Authorization: Bearer $TOKEN" \
   -F "pipeline=@test_pipelines/large_logs.yaml")
-id=$(echo $r | python -c "import sys,json; print(json.load(sys.stdin)['run_id'])")
+id=$(echo $r | python3 -c "import sys,json; print(json.load(sys.stdin)['run_id'])")
 echo "Run ID: $id — streaming first 10 lines:"
-curl -s $BASE_ENGINE/runs/$id/logs?follow=true | head -10
+curl -s "$BASE_ENGINE/runs/$id/logs?follow=true" | head -10
 echo "✅ Streaming works — check data/logs/$id.log for file size"
 
 echo ""
