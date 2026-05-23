@@ -2,9 +2,10 @@ import os
 import yaml
 import uuid
 import asyncio
-from fastapi import FastAPI, UploadFile, File, HTTPException, Depends
+from fastapi import FastAPI, UploadFile, File, HTTPException, Depends, Request, Response
 from fastapi.responses import StreamingResponse
 import aiofiles
+import httpx
 
 from engine.parser import parse_pipeline
 from engine.scheduler import build_dag, detect_cycles, get_parallel_groups
@@ -52,6 +53,9 @@ def _seed_internal_token():
 _seed_internal_token()
 
 app = FastAPI()
+
+# Registry URL for transparent proxying
+REGISTRY_URL = config.get("engine", {}).get("registry_url", "http://registry:8001")
 
 # In-memory run store
 runs: dict = {}
@@ -156,3 +160,96 @@ async def get_logs(run_id: str, follow: bool = False):
             "X-Accel-Buffering": "no",
         }
     )
+
+
+# ─────────────────────────────────────────────
+# UNIFIED API GATEWAY — TRANSPARENT PROXY
+# ─────────────────────────────────────────────
+
+@app.post("/resolve")
+async def proxy_resolve(request: Request):
+    async with httpx.AsyncClient() as client:
+        body = await request.body()
+        headers = dict(request.headers)
+        headers.pop("host", None)
+        resp = await client.post(
+            f"{REGISTRY_URL}/resolve",
+            content=body,
+            headers=headers,
+            timeout=30.0
+        )
+        return Response(
+            content=resp.content,
+            status_code=resp.status_code,
+            headers=dict(resp.headers)
+        )
+
+
+@app.post("/artifacts/{name}/{version}")
+async def proxy_publish(name: str, version: str, request: Request):
+    async with httpx.AsyncClient() as client:
+        body = await request.body()
+        headers = dict(request.headers)
+        headers.pop("host", None)
+        resp = await client.post(
+            f"{REGISTRY_URL}/artifacts/{name}/{version}",
+            content=body,
+            headers=headers,
+            timeout=60.0
+        )
+        return Response(
+            content=resp.content,
+            status_code=resp.status_code,
+            headers=dict(resp.headers)
+        )
+
+
+@app.get("/artifacts/{name}/{version}")
+async def proxy_download(name: str, version: str, request: Request):
+    async with httpx.AsyncClient() as client:
+        headers = dict(request.headers)
+        headers.pop("host", None)
+        resp = await client.get(
+            f"{REGISTRY_URL}/artifacts/{name}/{version}",
+            headers=headers,
+            timeout=60.0
+        )
+        return Response(
+            content=resp.content,
+            status_code=resp.status_code,
+            headers=dict(resp.headers)
+        )
+
+
+@app.get("/artifacts/{name}/{version}/meta")
+async def proxy_meta(name: str, version: str, request: Request):
+    async with httpx.AsyncClient() as client:
+        headers = dict(request.headers)
+        headers.pop("host", None)
+        resp = await client.get(
+            f"{REGISTRY_URL}/artifacts/{name}/{version}/meta",
+            headers=headers,
+            timeout=30.0
+        )
+        return Response(
+            content=resp.content,
+            status_code=resp.status_code,
+            headers=dict(resp.headers)
+        )
+
+
+@app.get("/artifacts/{name}")
+async def proxy_list_versions(name: str, request: Request):
+    async with httpx.AsyncClient() as client:
+        headers = dict(request.headers)
+        headers.pop("host", None)
+        resp = await client.get(
+            f"{REGISTRY_URL}/artifacts/{name}",
+            headers=headers,
+            timeout=30.0
+        )
+        return Response(
+            content=resp.content,
+            status_code=resp.status_code,
+            headers=dict(resp.headers)
+        )
