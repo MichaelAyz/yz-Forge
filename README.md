@@ -2,13 +2,6 @@
 
 A robust, high-performance, and secure CI/CD engine built alongside an immutable artifact registry and deterministic dependency resolver.
 
----
-
-## Public URL
-> [!NOTE]
-> **Production Endpoint:** `http://<your-vps-domain-or-ip>:8000` *(Fill in after VPS deployment)*
-
----
 
 ## Architecture Overview
 
