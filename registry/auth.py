@@ -120,7 +120,7 @@ def revoke_token(label: str) -> bool:
 
 
 
-def require_auth(authorization: str = Header(...)) -> str:
+def require_auth(authorization: Optional[str] = Header(None)) -> str:
     """FastAPI dependency — validates the Bearer token on every write request.
 
     Usage::
@@ -135,7 +135,7 @@ def require_auth(authorization: str = Header(...)) -> str:
     Raises:
         HTTPException 401: if the header is missing, malformed, or unknown.
     """
-    if not authorization.startswith("Bearer "):
+    if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(
             status_code=401,
             detail="Authorization header must be: Bearer <token>",
