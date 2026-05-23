@@ -4,12 +4,6 @@ A robust, high-performance, and secure CI/CD engine built alongside an immutable
 
 ---
 
-## Public URL
-> [!NOTE]
-> **Production Endpoint:** `http://<your-vps-domain-or-ip>:8000` *(Fill in after VPS deployment)*
-
----
-
 ## Architecture Overview
 
 Forge consists of two cooperating subsystems unified behind a single HTTP API Gateway:
