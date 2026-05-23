@@ -1,3 +1,5 @@
+import os
+import yaml
 import uuid
 import asyncio
 from fastapi import FastAPI, UploadFile, File, HTTPException, Depends
@@ -8,12 +10,24 @@ from engine.parser import parse_pipeline
 from engine.scheduler import build_dag, detect_cycles, get_parallel_groups
 from engine.runner import execute_pipeline
 from engine.logs import stream_logs
-from registry.auth import validate_token
+from registry.auth import init_auth, require_auth
+
+# Load config
+config_path = os.environ.get("CONFIG_PATH", "config.yaml")
+if os.path.exists(config_path):
+    with open(config_path, "r") as f:
+        config = yaml.safe_load(f)
+else:
+    config = {}
+
+# Initialize auth with the same database as the registry
+db_path = config.get("registry", {}).get("db_path", "./data/forge.db")
+os.makedirs(os.path.dirname(db_path) if os.path.dirname(db_path) else ".", exist_ok=True)
+init_auth(db_path)
 
 app = FastAPI()
 
-# In-memory run store — stores status of each run
-# In production this would be a DB, but for now a dict is fine
+# In-memory run store
 runs: dict = {}
 
 
@@ -29,7 +43,7 @@ def health():
 
 
 @app.post("/runs", status_code=201)
-async def create_run(pipeline: UploadFile = File(...), publisher: str = Depends(validate_token)):
+async def create_run(pipeline: UploadFile = File(...), publisher: str = Depends(require_auth)):
     """
     Accepts a pipeline YAML file.
     Validates it, builds the DAG, checks for cycles,
@@ -67,7 +81,6 @@ async def create_run(pipeline: UploadFile = File(...), publisher: str = Depends(
     }
 
     # Start the pipeline in the background
-    # This lets us return the run_id immediately
     asyncio.create_task(execute_pipeline(run_id, runs))
 
     return {"run_id": run_id}
@@ -103,12 +116,10 @@ async def get_logs(run_id: str, follow: bool = False):
     get_run_or_404(run_id)
 
     async def event_generator():
-        # Only active if status is queued or running
         def is_active():
             return runs.get(run_id, {}).get("status") in ["queued", "running"]
 
         async for line in stream_logs(run_id, follow, is_active_fn=is_active):
-            # SSE format requires "data: " prefix and double newline
             yield f"data: {line}\n\n"
 
     return StreamingResponse(
@@ -116,6 +127,6 @@ async def get_logs(run_id: str, follow: bool = False):
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
-            "X-Accel-Buffering": "no",  # important for nginx not to buffer
+            "X-Accel-Buffering": "no",
         }
     )

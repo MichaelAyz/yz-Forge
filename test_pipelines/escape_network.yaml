@@ -1,0 +1,11 @@
+name: escape-network-test
+version: 1.0.0
+jobs:
+  build:
+    runtime: alpine:3.18
+    resources:
+      cpu: 0.5
+      memory: 256Mi
+    steps:
+      - name: try-network
+        run: "wget -q -O- http://example.com 2>/dev/null && echo 'ESCAPED' || echo 'BLOCKED'"
