@@ -14,7 +14,7 @@ engine:
   registry_url: http://registry:8001
 
 slack:
-  webhook_url: ""
+  webhook_url: ${SLACK_WEBHOOK_URL}
 
 auth:
   tokens_table: tokens

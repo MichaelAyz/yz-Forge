@@ -53,7 +53,6 @@ async def execute_pipeline(run_id: str, runs: dict):
             return
         except Exception as e:
             await _log(run_id, "system", f"Resolution failed: {e}")
-            # Check if it's a version conflict from the registry
             error_str = str(e)
             if "conflict" in error_str.lower() or "Version conflict" in error_str:
                 run["status"] = "conflict_failure"
@@ -115,19 +114,16 @@ async def execute_pipeline(run_id: str, runs: dict):
         # ── Step 4: Publish artifacts ──────────────────────────────────
         artifacts = pipeline.get("artifacts", [])
         for artifact in artifacts:
-            # Artifact path is relative to the producing job's workspace
-            # The job runs in /workspace, so out.tar.gz is at <job_workspace>/out.tar.gz
-            # We need to find which job produced it - for now, use the first job's workspace
             if run["groups"]:
                 producing_job = run["groups"][-1][-1]  # Last job in last group
             else:
                 producing_job = list(pipeline["jobs"].keys())[0]
-            
+
             job_workspace = os.path.join(workspace, producing_job)
             artifact_path = os.path.join(job_workspace, artifact["path"].lstrip("./"))
-            
+
             await _log(run_id, "system", f"Looking for artifact at: {artifact_path}")
-            
+
             if os.path.exists(artifact_path):
                 await _log(run_id, "system", f"Publishing {artifact['name']}@{artifact['version']}")
                 try:
@@ -135,8 +131,22 @@ async def execute_pipeline(run_id: str, runs: dict):
                     await _log(run_id, "system", f"Published {artifact['name']}@{artifact['version']} successfully")
                 except Exception as e:
                     await _log(run_id, "system", f"Failed to publish artifact: {e}")
+                    run["status"] = "failed"
+                    duration = time.time() - start_time
+                    asyncio.create_task(alert_pipeline_event(
+                        pipeline["name"], run_id, "failed",
+                        duration_seconds=duration, failing_job="artifact-publish"
+                    ))
+                    return
             else:
                 await _log(run_id, "system", f"Artifact path not found: {artifact_path}")
+                run["status"] = "failed"
+                duration = time.time() - start_time
+                asyncio.create_task(alert_pipeline_event(
+                    pipeline["name"], run_id, "failed",
+                    duration_seconds=duration, failing_job="artifact-publish"
+                ))
+                return
 
         run["status"] = "succeeded"
         await _log(run_id, "system", f"Pipeline '{pipeline['name']}' succeeded")
@@ -233,7 +243,6 @@ async def run_job(run_id: str, job_name: str, job: dict, workspace: str, runs: d
             run["jobs"][job_name]["status"] = "succeeded"
             await _log(run_id, job_name, f"Job '{job_name}' succeeded")
         else:
-            # Check if it was killed by OOM
             if container.attrs["State"].get("OOMKilled", False):
                 await _log(run_id, job_name, "Job killed: Out of Memory (OOM)")
             run["jobs"][job_name]["status"] = "failed"
@@ -263,12 +272,14 @@ async def _stream_container_logs(container, run_id: str, job_name: str):
 
     def _read_logs():
         for chunk in container.logs(stream=True, follow=True):
-            line = chunk.decode("utf-8", errors="replace").rstrip()
-            if line:
-                asyncio.run_coroutine_threadsafe(
-                    write_log_line(run_id, job_name, line),
-                    loop
-                )
+            decoded = chunk.decode("utf-8", errors="replace")
+            for line in decoded.splitlines():
+                line = line.rstrip()
+                if line:
+                    asyncio.run_coroutine_threadsafe(
+                        write_log_line(run_id, job_name, line),
+                        loop
+                    )
 
     await loop.run_in_executor(None, _read_logs)
 

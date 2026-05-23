@@ -1,8 +1,0 @@
-name: test-pipeline
-version: 1.0.0
-jobs:
-  build:
-    runtime: alpine:3.18
-    steps:
-      - name: hello
-        run: echo "Hello World from Forge CI/CD!"

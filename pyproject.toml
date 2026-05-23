@@ -13,4 +13,7 @@ dependencies = [
 ]
 
 [project.scripts]
-forge = "forge:cli"
+forge = "cli.forge:cli"
+
+[tool.setuptools.packages.find]
+include = ["cli*"]

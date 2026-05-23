@@ -11,6 +11,8 @@ services:
       - ./config.yaml:/app/config.yaml
     environment:
       - CONFIG_PATH=/app/config.yaml
+    env_file:
+      - .env
 
   engine:
     restart: always
@@ -27,6 +29,7 @@ services:
       - CONFIG_PATH=/app/config.yaml
       - FORGE_INTERNAL_TOKEN=test-token
       - HOST_DATA_PATH=${PWD}/data
-      - SLACK_WEBHOOK_URL=${SLACK_WEBHOOK_URL}
+    env_file:
+      - .env
     depends_on:
       - registry
