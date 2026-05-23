@@ -2,7 +2,6 @@
 
 A robust, high-performance, and secure CI/CD engine built alongside an immutable artifact registry and deterministic dependency resolver.
 
----
 
 ## Architecture Overview
 
