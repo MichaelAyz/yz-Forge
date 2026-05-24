@@ -7,9 +7,4 @@ __pycache__/
 .DS_Store
 T7.md
 .env
-test_pipelines/
-verify.py
-task7.md
-build/
-dist/
-*.egg-info/
+forge.pem
