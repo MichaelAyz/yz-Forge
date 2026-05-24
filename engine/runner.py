@@ -121,12 +121,7 @@ async def execute_pipeline(run_id: str, runs: dict):
         # ── Step 4: Publish artifacts ──────────────────────────────────
         artifacts = pipeline.get("artifacts", [])
         for artifact in artifacts:
-            if run["groups"]:
-                producing_job = run["groups"][-1][-1]  # Last job in last group
-            else:
-                producing_job = list(pipeline["jobs"].keys())[0]
-
-            job_workspace = os.path.join(workspace, producing_job)
+            job_workspace = os.path.join(workspace, "workspace")
             artifact_path = os.path.join(job_workspace, artifact["path"].lstrip("./"))
 
             await _log(run_id, "system", f"Looking for artifact at: {artifact_path}")
@@ -196,16 +191,17 @@ async def run_job(run_id: str, job_name: str, job: dict, workspace: str, runs: d
         steps_script += f"echo '>>> Step: {step['name']}'\n"
         steps_script += step["run"] + "\n"
 
-    # Write script to job workspace
-    job_workspace = os.path.join(workspace, job_name)
+    # Write script to shared workspace
+    job_workspace = os.path.join(workspace, "workspace")
     os.makedirs(job_workspace, exist_ok=True)
 
-    script_path = os.path.join(job_workspace, "_forge_run.sh")
+    script_name = f"_forge_run_{job_name}.sh"
+    script_path = os.path.join(job_workspace, script_name)
     with open(script_path, "w") as f:
         f.write(steps_script)
 
     # Convert internal paths to host paths for Docker volume mounts
-    abs_job_workspace = os.path.join(HOST_DATA_PATH, "runs", run_id, job_name)
+    abs_job_workspace = os.path.join(HOST_DATA_PATH, "runs", run_id, "workspace")
     abs_deps_dir = os.path.join(HOST_DATA_PATH, "runs", run_id, "deps")
 
     await _log(run_id, job_name, f"Mounting workspace: {abs_job_workspace}")
@@ -230,7 +226,7 @@ async def run_job(run_id: str, job_name: str, job: dict, workspace: str, runs: d
 
         container = client.containers.run(
             image=job["runtime"],
-            command="sh /workspace/_forge_run.sh", working_dir="/workspace",
+            command=f"sh /workspace/{script_name}", working_dir="/workspace",
             detach=True,
             volumes={
                 abs_job_workspace: {"bind": "/workspace", "mode": "rw"},
