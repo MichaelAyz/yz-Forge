@@ -1,9 +1,0 @@
-name: bad-lines-test
-version: 1.0.0
-jobs:
-  build:
-    runtime: alpine:3.18
-    this_is_invalid: true
-    steps:
-      - name: hello
-        run: "echo 1"
