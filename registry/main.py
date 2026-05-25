@@ -4,13 +4,13 @@ import json
 from pathlib import Path
 from typing import Optional, List
 
-from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Form, Query
+from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Form
 from fastapi.responses import FileResponse
 
 from registry.auth import init_auth, require_auth
-from registry.metadata import init_db, save_artifact, get_artifact, list_versions, ConflictError
+from registry.metadata import init_db, save_artifact, get_artifact, list_versions
 from registry.storage import init_storage, save_blob, get_blob, verify_checksum
-from registry.resolver import resolve, Version
+from registry.resolver import resolve, Version, CycleError, ConflictError
 
 app = FastAPI(title="Forge Registry")
 
@@ -48,7 +48,6 @@ async def upload_artifact(
     file: UploadFile = File(...),
     checksum: str = Form(...),
     dependencies: Optional[str] = Form(None),
-    dependencies_query: Optional[str] = Query(None, alias="dependencies"),
     publisher: str = Depends(require_auth)
 ):
     """Upload a new artifact.
@@ -85,7 +84,7 @@ async def upload_artifact(
 
     # 4. Parse optional dependencies
     deps_list = []
-    deps_str = dependencies or dependencies_query
+    deps_str = dependencies
     if deps_str:
         try:
             deps_list = json.loads(deps_str)
@@ -97,7 +96,10 @@ async def upload_artifact(
                 detail=f"Invalid dependencies format: {str(e)}"
             )
 
-    # 5. Save metadata (returns 409 if already exists)
+    # 5. Save the blob content to disk
+    save_blob(file_bytes)
+
+    # 6. Save metadata (returns 409 if already exists)
     try:
         save_artifact(
             name=name,
@@ -112,9 +114,6 @@ async def upload_artifact(
             status_code=409,
             detail=str(e)
         )
-
-    # 6. Save the blob content to disk
-    save_blob(file_bytes)
 
     return {
         "status": "published",
@@ -200,16 +199,7 @@ def resolve_dependencies(req: dict):
     try:
         lockfile = resolve(deps)
         return lockfile
-    except ValueError as e:
-        error_msg = str(e)
-        # Determine error type for structured response
-        if "cycle" in error_msg.lower():
-            raise HTTPException(
-                status_code=400,
-                detail={"error": "cycle_failure", "message": error_msg}
-            )
-        else:
-            raise HTTPException(
-                status_code=400,
-                detail={"error": "conflict_failure", "message": error_msg}
-            )
+    except CycleError as e:
+        raise HTTPException(400, detail={"error": "cycle_failure", "message": str(e)})
+    except ConflictError as e:
+        raise HTTPException(400, detail={"error": "conflict_failure", "message": str(e)})

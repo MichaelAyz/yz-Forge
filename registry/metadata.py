@@ -4,10 +4,8 @@ import sqlite3
 import json
 from datetime import datetime, timezone
 from typing import Optional, Union
+from registry.resolver import ConflictError
 
-
-class ConflictError(Exception):
-    pass
 
 
 _db_path: str = ""

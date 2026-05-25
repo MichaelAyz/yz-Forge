@@ -5,7 +5,6 @@ import json
 from typing import Optional
 import registry.metadata as metadata
 
-# --- Custom Exception classes ---
 class ConflictError(Exception):
     pass
 
@@ -333,12 +332,7 @@ def resolve(dependencies: list) -> dict:
         A deterministic lockfile dict.
     """
     queue = [(d["name"], d["version"], ()) for d in dependencies]
-    try:
-        resolved = _solve(queue, {}, {})
-    except CycleError as e:
-        raise ValueError(str(e))
-    except ConflictError as e:
-        raise ValueError(str(e))
+    resolved = _solve(queue, {}, {})
 
     # Build the lockfile
     packages = {}
