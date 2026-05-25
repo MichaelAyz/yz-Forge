@@ -120,7 +120,7 @@ def revoke_token(label: str) -> bool:
 
 
 
-def require_auth(authorization: str = Header(...)) -> str:
+def require_auth(authorization: Optional[str] = Header(None)) -> str:
     """FastAPI dependency — validates the Bearer token on every write request.
 
     Usage::
@@ -135,7 +135,7 @@ def require_auth(authorization: str = Header(...)) -> str:
     Raises:
         HTTPException 401: if the header is missing, malformed, or unknown.
     """
-    if not authorization.startswith("Bearer "):
+    if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(
             status_code=401,
             detail="Authorization header must be: Bearer <token>",
@@ -181,13 +181,26 @@ if __name__ == "__main__":
 
     init_auth(db_path)
 
-    if cmd == "create":
-        if len(sys.argv) < 3:
+    if cmd in ("create", "create-token"):
+        # Support both:  create <label>  AND  create-token --publisher <label>
+        label = None
+        if "--publisher" in sys.argv:
+            idx = sys.argv.index("--publisher")
+            if idx + 1 < len(sys.argv):
+                label = sys.argv[idx + 1]
+        if not label:
+            # Positional: python -m registry.auth create <label>
+            for arg in sys.argv[2:]:
+                if not arg.startswith("-"):
+                    label = arg
+                    break
+        if not label:
             print("Usage: python -m registry.auth create <label>")
+            print("   or: python -m registry.auth create-token --publisher <label>")
             sys.exit(1)
-        label = sys.argv[2]
         token = create_token(label)
         print(f"Created token for '{label}': {token}")
+        print(f"Token: {token}")
         print("IMPORTANT: Save this token. It will not be shown again.")
     elif cmd == "list":
         tokens = list_tokens()
@@ -206,3 +219,4 @@ if __name__ == "__main__":
     else:
         print(f"Unknown command: {cmd}")
         sys.exit(1)
+

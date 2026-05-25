@@ -20,9 +20,10 @@ LOGS_PATH = CONFIG["engine"]["logs_path"]
 RUNS_PATH = CONFIG["engine"].get("runs_path", "/app/data/runs")
 HOST_DATA_PATH = os.environ.get("HOST_DATA_PATH", os.path.abspath("./data"))
 DEFAULT_TIMEOUT = CONFIG["engine"]["default_job_timeout"]
+MAX_CONCURRENCY = CONFIG["engine"].get("max_concurrency", 4)
 
-# For build containers to reach the registry, use host.docker.internal (works on Docker Desktop & Linux)
-BUILD_REGISTRY_URL = "http://host.docker.internal:8002"
+# Build containers reach the registry via per-job internal bridge network
+BUILD_REGISTRY_URL = "http://registry:8001"
 
 
 # ─────────────────────────────────────────────
@@ -54,7 +55,10 @@ async def execute_pipeline(run_id: str, runs: dict):
         except Exception as e:
             await _log(run_id, "system", f"Resolution failed: {e}")
             error_str = str(e)
-            if "conflict" in error_str.lower() or "Version conflict" in error_str:
+            if "cycle" in error_str.lower():
+                run["status"] = "cycle_failure"
+                asyncio.create_task(alert_resolution_failure(pipeline["name"], error_str))
+            elif "conflict" in error_str.lower() or "Version conflict" in error_str:
                 run["status"] = "conflict_failure"
                 asyncio.create_task(alert_resolution_failure(pipeline["name"], error_str))
             else:
@@ -82,13 +86,16 @@ async def execute_pipeline(run_id: str, runs: dict):
                 return
 
         # ── Step 3: Execute job groups in order ────────────────────────
+        concurrency_sem = asyncio.Semaphore(MAX_CONCURRENCY)
+
         for group in run["groups"]:
             await _log(run_id, "system", f"Starting jobs: {group}")
 
-            tasks = [
-                run_job(run_id, job_name, pipeline["jobs"][job_name], workspace, runs)
-                for job_name in group
-            ]
+            async def _throttled_run(jn):
+                async with concurrency_sem:
+                    return await run_job(run_id, jn, pipeline["jobs"][jn], workspace, runs)
+
+            tasks = [_throttled_run(job_name) for job_name in group]
             results = await asyncio.gather(*tasks, return_exceptions=True)
 
             group_failed = False
@@ -114,12 +121,7 @@ async def execute_pipeline(run_id: str, runs: dict):
         # ── Step 4: Publish artifacts ──────────────────────────────────
         artifacts = pipeline.get("artifacts", [])
         for artifact in artifacts:
-            if run["groups"]:
-                producing_job = run["groups"][-1][-1]  # Last job in last group
-            else:
-                producing_job = list(pipeline["jobs"].keys())[0]
-
-            job_workspace = os.path.join(workspace, producing_job)
+            job_workspace = os.path.join(workspace, "workspace")
             artifact_path = os.path.join(job_workspace, artifact["path"].lstrip("./"))
 
             await _log(run_id, "system", f"Looking for artifact at: {artifact_path}")
@@ -189,27 +191,42 @@ async def run_job(run_id: str, job_name: str, job: dict, workspace: str, runs: d
         steps_script += f"echo '>>> Step: {step['name']}'\n"
         steps_script += step["run"] + "\n"
 
-    # Write script to job workspace
-    job_workspace = os.path.join(workspace, job_name)
+    # Write script to shared workspace
+    job_workspace = os.path.join(workspace, "workspace")
     os.makedirs(job_workspace, exist_ok=True)
 
-    script_path = os.path.join(job_workspace, "_forge_run.sh")
+    script_name = f"_forge_run_{job_name}.sh"
+    script_path = os.path.join(job_workspace, script_name)
     with open(script_path, "w") as f:
         f.write(steps_script)
 
     # Convert internal paths to host paths for Docker volume mounts
-    abs_job_workspace = os.path.join(HOST_DATA_PATH, "runs", run_id, job_name)
+    abs_job_workspace = os.path.join(HOST_DATA_PATH, "runs", run_id, "workspace")
     abs_deps_dir = os.path.join(HOST_DATA_PATH, "runs", run_id, "deps")
 
     await _log(run_id, job_name, f"Mounting workspace: {abs_job_workspace}")
 
     client = docker.from_env()
 
+    # Create a per-job internal bridge network (no internet egress, registry-only)
+    network_name = f"forge-{run_id[:8]}-{job_name}"
+    network = None
+    registry_container = None
     container = None
     try:
+        network = client.networks.create(network_name, driver="bridge", internal=True)
+
+        # Dynamically find the registry container and attach it to this network
+        registry_containers = client.containers.list(
+            filters={"label": "com.docker.compose.service=registry"}
+        )
+        if registry_containers:
+            registry_container = registry_containers[0]
+            network.connect(registry_container, aliases=["registry"])
+
         container = client.containers.run(
             image=job["runtime"],
-            command="sh /workspace/_forge_run.sh", working_dir="/workspace",
+            command=f"sh /workspace/{script_name}", working_dir="/workspace",
             detach=True,
             volumes={
                 abs_job_workspace: {"bind": "/workspace", "mode": "rw"},
@@ -223,7 +240,7 @@ async def run_job(run_id: str, job_name: str, job: dict, workspace: str, runs: d
                 "FORGE_URL":   BUILD_REGISTRY_URL,
                 "FORGE_TOKEN": _get_build_token(),
             },
-            network_mode="none",  # Complete network isolation
+            network=network_name,
             remove=False,
         )
 
@@ -259,6 +276,16 @@ async def run_job(run_id: str, job_name: str, job: dict, workspace: str, runs: d
         if container:
             try:
                 container.remove(force=True)
+            except Exception:
+                pass
+        if network and registry_container:
+            try:
+                network.disconnect(registry_container)
+            except Exception:
+                pass
+        if network:
+            try:
+                network.remove()
             except Exception:
                 pass
 
