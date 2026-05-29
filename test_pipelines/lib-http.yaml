@@ -1,0 +1,15 @@
+name: lib-http-pipeline
+version: 1.0.0
+dependencies:
+  - name: lib-core
+    version: "^1.0.0"
+artifacts:
+  - name: lib-http
+    version: 1.0.0
+    path: lib-http.tar.gz
+jobs:
+  build:
+    runtime: alpine:3.18
+    steps:
+      - name: create-tgz
+        run: "echo 'lib-http-source-v1.0.0' > http.txt && tar -czf lib-http.tar.gz http.txt"
