@@ -1,0 +1,17 @@
+name: service-api-pipeline
+version: 0.1.0
+dependencies:
+  - name: lib-core
+    version: "^1.0.0"
+  - name: lib-http
+    version: "^1.0.0"
+artifacts:
+  - name: service-api
+    version: 0.1.0
+    path: service-api.tar.gz
+jobs:
+  build:
+    runtime: alpine:3.18
+    steps:
+      - name: create-tgz
+        run: "echo 'service-api-source-v0.1.0' > api.txt && tar -czf service-api.tar.gz api.txt"
