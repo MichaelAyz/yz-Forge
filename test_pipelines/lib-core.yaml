@@ -1,0 +1,12 @@
+name: lib-core-pipeline
+version: 1.0.0
+artifacts:
+  - name: lib-core
+    version: 1.0.0
+    path: lib-core.tar.gz
+jobs:
+  build:
+    runtime: alpine:3.18
+    steps:
+      - name: create-tgz
+        run: "echo 'lib-core-source-v1.0.0' > core.txt && tar -czf lib-core.tar.gz core.txt"

@@ -1,0 +1,8 @@
+name: massive-logs-pipeline
+version: 1.0.0
+jobs:
+  stream-logs:
+    runtime: alpine:3.18
+    steps:
+      - name: generate-logs
+        run: "yes '================== STREAMING FORGE LOG DATA METRIC STREAM LINE ==================' | head -n 750000"
